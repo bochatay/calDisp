@@ -231,12 +231,12 @@ natif (1200×1600)** selon `S6_ROTATION` (`90` ou `270`) avant l'encodage.
 ### Vérifier un fichier produit
 
 ```bash
-python decode_s6.py output/calendar.s6 /tmp/apercu.png   # relit le .s6 -> PNG
+python decode_s6.py /opt/calendar-output/calendar.s6 /tmp/apercu.png   # relit le .s6 -> PNG
 ```
 
 ## Version de l'image et rafraichissement à la demande
 
-Pour économiser la dalle, l'image n'est régénérée que lorsque son **contenu** change (événements, jour affiché, mise en page) — l'heure de génération du pied de page n'est **pas** un motif de régénération. Un **numéro de version** est persisté dans `output/calendar.version.json` et exposé :
+Pour économiser la dalle, l'image n'est régénérée que lorsque son **contenu** change (événements, jour affiché, mise en page) — l'heure de génération du pied de page n'est **pas** un motif de régénération. Un **numéro de version** est persisté dans `/opt/calendar-output/calendar.version.json` et exposé :
 
 - `GET /version` → `{"version": N, "generated_at": "..."}`.
 - `GET /calendar.s6` (et `/calendar.png`) renvoient l'en-tête **`X-Image-Version: N`** (+ `ETag: "N"`). Un `GET /calendar.s6` avec `If-None-Match: "N"` répond **`304`** (corps vide) si la version n'a pas changé.
@@ -248,7 +248,8 @@ Hors de la plage `START_HOUR`→`END_HOUR` (heure locale), le service **n'appell
 ## Notes
 
 - Le `.env` est lu par Docker Compose : les variables utilisées sont listées dans `docker/docker-compose.yaml`, à compléter si vous en ajoutez.
+- **Toutes les valeurs par défaut sont aussi dans le code Python** (`config.py`, `dither.py`) : le service démarre avec ces défauts même sans `docker-compose` ni `.env`. Seuls les identifiants CalDAV (`CALDAV_URL`, `CALDAV_USERNAME`, `CALDAV_PASSWORD`) sont obligatoires ; les défauts du compose ne font que les refléter. Une variable **absente ou vide** retombe sur son défaut, et une valeur invalide est ignorée avec un avertissement.
 - **Après avoir modifié le `.env`, il faut *recréer* le conteneur** (`docker compose up -d`), pas seulement le redémarrer (`docker compose restart` conserve l'environnement d'origine). Pour vérifier l'intervalle réellement utilisé : `curl http://<hôte>:8000/status` (champ `refresh_interval_minutes`).
 - `DITHER_NOISE_SIZE` ne concerne que les **couleurs logiques** (tramage), pas les motifs.
-- `S6_ROTATION` doit correspondre au sens de montage de la dalle ; `decode_s6.py` permet de vérifier un `.s6` produit (`python decode_s6.py output/calendar.s6 /tmp/apercu.png`).
+- `S6_ROTATION` doit correspondre au sens de montage de la dalle ; `decode_s6.py` permet de vérifier un `.s6` produit (`python decode_s6.py /opt/calendar-output/calendar.s6 /tmp/apercu.png`).
 

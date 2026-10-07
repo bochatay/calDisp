@@ -1,0 +1,27 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Polices nécessaires au rendu des images
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        fonts-noto-core \
+        fonts-dejavu-core \
+        fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
+
+# Dépendances Python
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Code de l'application
+COPY . .
+
+# Répertoire utilisé pour les données générées.
+# Il sera remplacé par un volume en production.
+RUN mkdir -p /opt/calendar-output
+
+EXPOSE 8000
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -188,31 +188,63 @@ def _warn_relative_paths(*paths: str) -> None:
             )
 
 
+def _env(name: str, default: str = "") -> str:
+    """Valeur d'environnement, ou ``default`` si la variable est absente OU vide.
+
+    Reproduit ``${VAR:-defaut}`` de Docker Compose : le service demarre avec ses
+    valeurs par defaut meme sans ``.env`` complet, que le compose soit utilise ou non.
+    """
+    value = os.environ.get(name)
+    if value is None or value == "":
+        return default
+    return value
+
+
+def _parse_int(name: str, default: int, minimum: int = 1) -> int:
+    """Entier lu dans ``name`` (>= ``minimum``) ; sinon ``default`` + avertissement."""
+    raw = _env(name, str(default))
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = -1
+    if value < minimum:
+        logger.warning(
+            "%s=%r invalide (>= %d attendu) : %d utilise", name, raw, minimum, default
+        )
+        return default
+    return value
+
+
 def load_config() -> Config:
-    """Construit la configuration a partir des variables d'environnement."""
-    image_path = os.environ.get("IMAGE_PATH", DEFAULT_IMAGE_PATH)
-    s6_path = os.environ.get("S6_PATH") or _default_s6_path(image_path)
+    """Construit la configuration a partir des variables d'environnement.
+
+    Seuls les identifiants CalDAV sont obligatoires ; **toutes** les autres ont
+    une valeur par defaut definie ici, donc le service tourne meme sans le
+    ``docker-compose``. Une variable absente ou vide retombe sur son defaut.
+    """
+    image_path = _env("IMAGE_PATH", DEFAULT_IMAGE_PATH)
+    s6_path = _env("S6_PATH") or _default_s6_path(image_path)
     _warn_relative_paths(image_path, s6_path)
 
     return Config(
         caldav_url=os.environ["CALDAV_URL"],
         caldav_username=os.environ["CALDAV_USERNAME"],
         caldav_password=os.environ["CALDAV_PASSWORD"],
-        calendars=_parse_calendars(os.environ.get("CALDAV_CALENDARS", "")),
-        refresh_interval_minutes=int(os.environ.get("REFRESH_INTERVAL_MINUTES", "60")),
-        display_timezone=os.environ.get("DISPLAY_TIMEZONE", "Europe/Paris"),
-        days_ahead=int(os.environ.get("DAYS_AHEAD", "7")),
+        calendars=_parse_calendars(_env("CALDAV_CALENDARS")),
+        refresh_interval_minutes=_parse_int("REFRESH_INTERVAL_MINUTES", 60),
+        display_timezone=_env("DISPLAY_TIMEZONE", "Europe/Paris"),
+        days_ahead=_parse_int("DAYS_AHEAD", 7),
         image_path=image_path,
         s6_path=s6_path,
-        s6_rotation=_parse_rotation(os.environ.get("S6_ROTATION", "90")),
+        s6_rotation=_parse_rotation(_env("S6_ROTATION", "90")),
         column_colors=_parse_column_colors(),
         first_column_scale=_parse_first_column_scale(
-            os.environ.get("FIRST_COLUMN_SCALE", str(DEFAULT_FIRST_COLUMN_SCALE))
+            _env("FIRST_COLUMN_SCALE", str(DEFAULT_FIRST_COLUMN_SCALE))
         ),
         start_hour=_parse_hour(
-            os.environ.get("START_HOUR", str(DEFAULT_START_HOUR)), DEFAULT_START_HOUR
+            _env("START_HOUR", str(DEFAULT_START_HOUR)), DEFAULT_START_HOUR
         ),
         end_hour=_parse_hour(
-            os.environ.get("END_HOUR", str(DEFAULT_END_HOUR)), DEFAULT_END_HOUR
+            _env("END_HOUR", str(DEFAULT_END_HOUR)), DEFAULT_END_HOUR
         ),
     )
