@@ -1,0 +1,35 @@
+services:
+  calendar:
+    build:
+      context: app
+      dockerfile: docker/Dockerfile
+    container_name: calendar-display
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app
+      - ./output:/opt/calendar-output
+    environment:
+      CALDAV_URL: ${CALDAV_URL}
+      CALDAV_USERNAME: ${CALDAV_USERNAME}
+      CALDAV_PASSWORD: ${CALDAV_PASSWORD}
+      CALDAV_CALENDARS: ${CALDAV_CALENDARS:-}
+      REFRESH_INTERVAL_MINUTES: ${REFRESH_INTERVAL_MINUTES:-60}
+      DISPLAY_TIMEZONE: ${DISPLAY_TIMEZONE:-Europe/Paris}
+      DAYS_AHEAD: ${DAYS_AHEAD:-7}
+      IMAGE_PATH: ${IMAGE_PATH:-/opt/calendar-output/calendar.png}
+      S6_PATH: ${S6_PATH:-/opt/calendar-output/calendar.s6}
+      S6_ROTATION: ${S6_ROTATION:-90}
+      FIRST_COLUMN_SCALE: ${FIRST_COLUMN_SCALE:-1.5}
+      START_HOUR: ${START_HOUR:-6}
+      END_HOUR: ${END_HOUR:-23}
+      DITHER_NOISE_SIZE: ${DITHER_NOISE_SIZE:-64}
+      MONDAY: ${MONDAY:-}
+      TUESDAY: ${TUESDAY:-}
+      WEDNESDAY: ${WEDNESDAY:-}
+      THURSDAY: ${THURSDAY:-}
+      FRIDAY: ${FRIDAY:-}
+      SATURDAY: ${SATURDAY:-}
+      SUNDAY: ${SUNDAY:-}
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload

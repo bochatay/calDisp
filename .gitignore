@@ -1,0 +1,33 @@
+cat > .gitignore <<'EOF'
+# Secrets / configuration locale
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Environnements virtuels
+.venv/
+venv/
+env/
+
+# Tests / outils
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Données générées par l'application
+output/*
+
+# Container IA
+devcontainer/*
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+EOF
