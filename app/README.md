@@ -165,9 +165,9 @@ Syntaxe : `ENCRE_motif[_paramètre]_espacement`. L'**encre** est l'une des **6 c
 | Méthode | Route | Rôle |
 |---|---|---|
 | `GET` | `/calendar.png` | PNG de prévisualisation |
-| `GET` | `/calendar.s6` | binaire Spectra 6 (4 bits/pixel) pour l'ESP32 |
+| `GET` | `/calendar.s6` | binaire Spectra 6 (4 bits/pixel) pour l'ESP32 (+ tension batterie, v. plus bas) |
 | `POST` | `/generate` | régénère à la demande + rapport par calendrier |
-| `GET` | `/status` | état du planificateur : intervalle **réel**, prochaine exécution, dernier résultat |
+| `GET` | `/status` | état du planificateur : intervalle **réel**, prochaine exécution, dernier résultat, dernière tension reçue |
 | `GET` | `/version` | numéro de version de l'image courante |
 | `GET` | `/health` | sonde de santé |
 
@@ -241,9 +241,38 @@ Pour économiser la dalle, l'image n'est régénérée que lorsque son **contenu
 - `GET /version` → `{"version": N, "generated_at": "..."}`.
 - `GET /calendar.s6` (et `/calendar.png`) renvoient l'en-tête **`X-Image-Version: N`** (+ `ETag: "N"`). Un `GET /calendar.s6` avec `If-None-Match: "N"` répond **`304`** (corps vide) si la version n'a pas changé.
 
-Côté ESP32 : au réveil, appeler `/version` (ou lire l'en-tête `X-Image-Version` du `.s6`) ; ne reflasher la dalle que si la version diffère de la dernière connue.
+Côté ESP32 : au réveil, appeler `/version` (ou lire l'en-tête `X-Image-Version` du `.s6`) ; ne reflasher la dalle que si la version diffère de la dernière connue. Le binaire peut en plus porter la **tension batterie** (section suivante) sans que cela change cette version.
 
 Hors de la plage `START_HOUR`→`END_HOUR` (heure locale), le service **n'appelle pas CalDAV et ne génère rien** (le NAS se repose la nuit). La première génération après `START_HOUR` produit une nouvelle version (le nom du jour de la 1ʳᵉ colonne a changé).
+
+## Tension de la batterie (`X-Battery-Voltage`)
+
+L'ESP32 mesure sa batterie mais **ne dessine pas** (pour l'économiser) : c'est le
+serveur qui compose l'image. L'ESP32 transmet donc sa tension dans l'en-tête
+`X-Battery-Voltage` (format `3.85` ; `3,85` et `3.85V` sont aussi acceptés) avec
+son `GET /calendar.s6` :
+
+```bash
+curl -H 'X-Battery-Voltage: 3.85' http://<hôte>:8000/calendar.s6 -o calendar.s6
+```
+
+- La valeur est **incrustée en bas à droite** du pied de page (`3.85V`) : la date
+  et l'heure de génération sont **décalées vers la gauche** pour lui laisser la
+  place, et les entrées de légende qui ne tiennent plus sont retirées.
+- L'ajout se fait **à la volée dans le binaire déjà généré** : l'image n'est
+  **pas** régénérée (aucun appel CalDAV, aucun re-rendu) et seuls les ~33 Ko de
+  la bande du pied de page sont relus puis réécrits. C'est `S6_ROTATION` qui
+  désigne la moitié concernée du binaire (`90` → moitié gauche, `270` → droite).
+- Le **fichier `calendar.s6` sur disque n'est jamais modifié** ; sa taille
+  (960 017 o) est conservée, et **ni le numéro de version ni l'`ETag` ne
+  changent**.
+- La réponse renvoie la valeur normalisée dans `X-Battery-Voltage` (ex. `3.85V`)
+  et `GET /status` expose `last_battery` (`label` + horodatage UTC).
+- Valeur absente ou illisible (`abc`, hors de `0,5`–`12 V`) : l'image est servie
+  **telle quelle**, avec un avertissement dans les journaux.
+- Une réponse **`304`** n'ayant pas de corps, il n'y a rien à incruster :
+  l'ESP32 doit faire un `GET` complet (sans `If-None-Match`) pour récupérer une
+  image portant la tension à jour.
 
 ## Notes
 

@@ -327,6 +327,25 @@ def _footer_text_y(draw, top: float) -> float:
     return top + FOOTER_HEIGHT / 2 - (box[1] + box[3]) / 2
 
 
+def footer_text_y(draw) -> float:
+    """Ordonnee (paysage) du texte du pied de page, partagee avec ``battery``.
+
+    Permet d'aligner un ajout fait a la volee (la tension batterie) sur le reste
+    du pied de page, sans dupliquer la metrique de la police.
+    """
+    return _footer_text_y(draw, HEIGHT - FOOTER_HEIGHT)
+
+
+def footer_box():
+    """Rectangle paysage (``x0, y0, x1, y1``) de la bande du pied de page.
+
+    Le filet horizontal qui separe le pied de page du tableau est exclu (il est
+    epais de ``LINE_WIDTH``), ainsi qu'une marge de securite : la zone retournee
+    est donc entierement sur fond blanc et ne contient que le texte du pied.
+    """
+    return (0, HEIGHT - FOOTER_HEIGHT + 2 * LINE_WIDTH, WIDTH, HEIGHT)
+
+
 def _draw_footer(draw, img, legend, generated_at) -> None:
     """Bande du bas : legende des calendriers (teinte + nom) et heure de generation.
 
@@ -336,7 +355,7 @@ def _draw_footer(draw, img, legend, generated_at) -> None:
     top = HEIGHT - FOOTER_HEIGHT
     draw.line((0, top, WIDTH, top), fill=BLACK_INDEX, width=LINE_WIDTH)
 
-    text_y = _footer_text_y(draw, top)
+    text_y = footer_text_y(draw)
     swatch_top = round(top + (FOOTER_HEIGHT - FOOTER_SWATCH_HEIGHT) / 2)
 
     # Heure de generation, alignee a droite.

@@ -10,6 +10,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 
+import battery
 from caldav_client import fetch
 from config import load_config
 from renderer import generate_image
@@ -35,6 +36,11 @@ scheduler = BackgroundScheduler(
 # Etat du dernier rafraichissement planifie (expose par ``GET /status``).
 last_run = {"at": None, "ok": None, "events": None, "version": None,
             "changed": None, "skipped": None, "error": None}
+
+# Derniere tension batterie transmise par l'ESP32 avec une demande de binaire
+# (exposee par ``GET /status``). Purement informative : elle n'entre ni dans le
+# rendu, ni dans la version de l'image.
+last_battery = {"label": None, "at": None}
 
 # Numero de version courant de l'image et empreinte associee (persiste au sol).
 version_state = dict(DEFAULT_STATE)
@@ -310,6 +316,7 @@ def status():
         "scheduler_running": scheduler.running,
         "next_run": job.next_run_time.isoformat() if job and job.next_run_time else None,
         "last_run": dict(last_run),
+        "last_battery": dict(last_battery),
     }
 
 
@@ -329,14 +336,50 @@ def calendar_binary(request: Request):
 
     L'ESP32 peut envoyer ``If-None-Match: "<version>"`` : s'il possede deja cette
     version, le serveur repond ``304`` sans renvoyer l'image.
+
+    Il peut aussi transmettre sa tension batterie dans l'en-tete
+    ``X-Battery-Voltage`` (format ``3.85``) : comme l'image n'est **pas**
+    regeneree, la valeur est incrustee a la volee dans le pied de page du binaire
+    deja produit (voir ``battery.stamp``), sans toucher au fichier sur disque, a
+    la version de l'image ni a son ``ETag``. Une reponse ``304`` n'ayant pas de
+    corps, il n'y a rien a incruster dans ce cas.
     """
     config = load_config()
     headers = _image_headers()
     not_modified = _not_modified(request, headers)
     if not_modified is not None:
         return not_modified
-    return FileResponse(
-        config.s6_path, media_type="application/octet-stream", headers=headers
+
+    label = battery.parse_voltage(request.headers.get("x-battery-voltage"))
+    if label is None:
+        # Aucune tension exploitable : comportement d'origine (fichier tel quel).
+        return FileResponse(
+            config.s6_path, media_type="application/octet-stream", headers=headers
+        )
+
+    try:
+        with open(config.s6_path, "rb") as handle:
+            payload = handle.read()
+        stamped = battery.stamp(payload, config.s6_rotation, label)
+    except Exception:
+        logger.exception("Incrustation de la tension %s impossible", label)
+        return FileResponse(
+            config.s6_path, media_type="application/octet-stream", headers=headers
+        )
+
+    if stamped is None:
+        return FileResponse(
+            config.s6_path, media_type="application/octet-stream", headers=headers
+        )
+
+    last_battery.update(label=label, at=datetime.now(timezone.utc).isoformat())
+    headers["X-Battery-Voltage"] = label
+    logger.info(
+        "Tension %s incrustee dans le pied de page (version %s)",
+        label, headers["X-Image-Version"],
+    )
+    return Response(
+        content=stamped, media_type="application/octet-stream", headers=headers
     )
 
 

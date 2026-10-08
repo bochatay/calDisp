@@ -653,3 +653,90 @@ def write_s6(image: Image.Image, path: str, rotation: int = DEFAULT_ROTATION) ->
         handle.write(payload)
 
     return len(payload)
+
+
+# --- Retouche d'une zone du binaire --------------------------------------------
+#
+# Certaines informations ne sont connues qu'au moment de la requete HTTP (la
+# tension batterie envoyee par l'ESP32, voir ``battery``). Plutot que de
+# regenerer toute l'image pour cela, on relit la zone concernee du binaire deja
+# produit, on la retouche sous forme d'image, puis on reinscrit uniquement ses
+# quartets : le format et la taille du fichier ne changent pas.
+
+def _panel_position(x: int, y: int, rotation: int) -> Tuple[int, int, int]:
+    """Position ``(demi-image, ligne, colonne)`` d'un pixel paysage dans le tampon.
+
+    La rotation appliquee est exactement celle de ``portrait`` (voir
+    ``ROTATION_TRANSPOSE``) : ``90`` -> ``ROTATE_270`` (90 deg dans le sens
+    horaire), ``270`` -> ``ROTATE_90`` (90 deg dans le sens anti-horaire).
+    """
+    if rotation == 90:
+        px, py = LANDSCAPE_HEIGHT - 1 - y, x
+    elif rotation == 270:
+        px, py = y, LANDSCAPE_WIDTH - 1 - x
+    else:
+        raise ValueError(f"Rotation {rotation!r} inconnue (90 ou 270 attendu)")
+
+    half, col = divmod(px, PANEL_HALF_WIDTH)
+    return half, py, col
+
+
+def _panel_offset(half: int, row: int, col: int) -> int:
+    """Octet portant le quartet du pixel ``(half, row, col)`` dans le binaire."""
+    return (
+        HEADER_SIZE
+        + half * (PANEL_HALF_WIDTH // 2) * PANEL_HEIGHT
+        + row * (PANEL_HALF_WIDTH // 2)
+        + col // 2
+    )
+
+
+def read_box(blob, rotation: int, box) -> Image.Image:
+    """Extrait le rectangle paysage ``box`` du binaire, sous forme d'image ``P``.
+
+    ``box`` suit la convention Pillow ``(x0, y0, x1, y1)`` (``x1``/``y1`` exclus)
+    et s'exprime en coordonnees **paysage** (1600x1200), comme ``renderer``. Le
+    resultat porte la palette Spectra 6 : il peut etre retouche, puis reinjecte
+    tel quel par ``write_box``.
+    """
+    x0, y0, x1, y1 = box
+    width, height = x1 - x0, y1 - y0
+    if width <= 0 or height <= 0:
+        raise ValueError(f"Rectangle vide : {box!r}")
+
+    values = bytearray(width * height)
+    for line, y in enumerate(range(y0, y1)):
+        base = line * width
+        for index, x in enumerate(range(x0, x1)):
+            half, row, col = _panel_position(x, y, rotation)
+            byte = blob[_panel_offset(half, row, col)]
+            values[base + index] = (byte >> 4) if col % 2 == 0 else byte & 0x0F
+
+    image = Image.frombytes("P", (width, height), bytes(values))
+    image.putpalette(palette_flat())
+    return image
+
+
+def write_box(buf: bytearray, rotation: int, box, image: Image.Image) -> None:
+    """Reinsere dans ``buf`` les quartets du rectangle paysage ``box``.
+
+    Seuls les octets de la zone sont touches : la taille du binaire ne change pas.
+    """
+    x0, y0, x1, y1 = box
+    width, height = x1 - x0, y1 - y0
+    if image.size != (width, height):
+        raise ValueError(
+            f"Image {image.size} : attendu {width}x{height} pour le rectangle {box!r}"
+        )
+
+    values = image.tobytes()
+    for line, y in enumerate(range(y0, y1)):
+        base = line * width
+        for index, x in enumerate(range(x0, x1)):
+            half, row, col = _panel_position(x, y, rotation)
+            offset = _panel_offset(half, row, col)
+            value = values[base + index] & 0x0F
+            if col % 2 == 0:
+                buf[offset] = (buf[offset] & 0x0F) | (value << 4)
+            else:
+                buf[offset] = (buf[offset] & 0xF0) | value
